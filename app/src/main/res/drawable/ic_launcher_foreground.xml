@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 拼豆主体 (薄荷绿圆) -->
+    <path
+        android:fillColor="#B4E6D2"
+        android:pathData="M54,30 m-30,0 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0" />
+    <!-- 下半部阴影 -->
+    <path
+        android:fillColor="#8CCAB8"
+        android:pathData="M54,30 m-30,0 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0 M24,30 a30,30 0 0,0 60,0 v15 a30,30 0 0,1 -60,0 z" />
+    <!-- 高光 (左上) -->
+    <path
+        android:fillColor="#D7F5E6"
+        android:pathData="M42,18 m-9,0 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0" />
+    <!-- 中心孔外 (奶白) -->
+    <path
+        android:fillColor="#FFF5DC"
+        android:pathData="M54,54 m-9,0 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0" />
+    <!-- 中心孔内 (深一点) -->
+    <path
+        android:fillColor="#E8D5A8"
+        android:pathData="M54,54 m-6,0 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0" />
+</vector>
