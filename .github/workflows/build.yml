@@ -25,14 +25,9 @@ jobs:
           unzip -q opencv-4.10.0-android-sdk.zip
           mkdir -p opencv/src/main/java
           cp -r OpenCV-android-sdk/sdk/java/src/* opencv/src/main/java/
-          # Remove camera view classes (unused by app; depend on BuildConfig + res we don't ship)
-          rm -f opencv/src/main/java/org/opencv/android/CameraBridgeViewBase.java \
-                opencv/src/main/java/org/opencv/android/JavaCameraView.java \
-                opencv/src/main/java/org/opencv/android/JavaCameraView2.java \
-                opencv/src/main/java/org/opencv/android/CameraGLSurfaceView.java \
-                opencv/src/main/java/org/opencv/android/CameraGLRendererBase.java \
-                opencv/src/main/java/org/opencv/android/Camera2Renderer.java \
-                opencv/src/main/java/org/opencv/android/CameraActivity.java
+          # Remove ALL camera view classes (unused by app; depend on BuildConfig + res + Camera APIs)
+          # Keeps: Utils, OpenCVLoader, StaticHelper, AsyncServiceHelper, Loader/InstallCallbackInterface
+          rm -f opencv/src/main/java/org/opencv/android/*Camera*.java
           mkdir -p opencv/src/main/jniLibs
           cp -r OpenCV-android-sdk/sdk/native/libs/arm64-v8a opencv/src/main/jniLibs/
           cp -r OpenCV-android-sdk/sdk/native/libs/armeabi-v7a opencv/src/main/jniLibs/
