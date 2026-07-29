@@ -50,7 +50,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isAutoAvailable: Boolean get() = subjectExtractor.isAutoAvailable()
 
     init {
-        subjectExtractor.init()
+        // 异步初始化 TFLite, 失败不影响 App 启动 (自动抠图不可用时降级到手动)
+        viewModelScope.launch {
+            withContext(Dispatchers.Default) {
+                try {
+                    subjectExtractor.init()
+                } catch (e: Throwable) {
+                    // 记录但不崩溃: 自动提取不可用, 用户仍可用手动 GrabCut
+                    error = "自动提取初始化失败: ${e.message}"
+                }
+            }
+        }
     }
 
     fun setSource(bmp: Bitmap) {
