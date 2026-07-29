@@ -38,8 +38,11 @@ jobs:
       - name: Download U2Net TFLite model
         run: |
           mkdir -p app/src/main/assets/models
-          wget -q -O app/src/main/assets/models/u2net_lite_int8.tflite \
-            https://github.com/ailia-ai/ailia-models-tflite/raw/main/background_removal/u2net/u2netp_full_integer_quant.tflite
+          # 优先 INT8 量化版 (~1.5MB), 兑不了回退到 float32 small (~5MB)
+          wget -q -O app/src/main/assets/models/u2net.tflite \
+            https://github.com/ailia-ai/ailia-models-tflite/raw/main/background_removal/u2net/u2netp_full_integer_quant.tflite || \
+          wget -q -O app/src/main/assets/models/u2net.tflite \
+            https://github.com/ailia-ai/ailia-models-tflite/raw/main/background_removal/u2net/u2netp_float32.tflite
           ls -lh app/src/main/assets/models/
 
       - name: Fetch palettes and generate icon
@@ -65,9 +68,9 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk output/pindou-v1.0-arm64.apk || true
-          cp app/build/outputs/apk/release/app-armeabi-v7a-release.apk output/pindou-v1.0-armv7.apk || true
-          cp app/build/outputs/apk/release/app-release.apk output/pindou-v1.0.apk || true
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk output/pindou-v1.0-arm64.apk 2>/dev/null || true
+          cp app/build/outputs/apk/release/app-armeabi-v7a-release.apk output/pindou-v1.0-armv7.apk 2>/dev/null || true
+          cp app/build/outputs/apk/release/app-release.apk output/pindou-v1.0.apk 2>/dev/null || true
           ls -lh output/
 
       - name: Create Release v1.0
@@ -81,15 +84,16 @@ jobs:
             首个版本。
 
             ## 功能
-            - 图片转拼豆图纸（Lab + CIEDE2000 色差匹配）
-            - 主体提取（TFLite U2Net 自动 + OpenCV GrabCut 手动）
-            - 三套调色板（Artkal C、Artkal S、MARD）
-            - Floyd-Steinberg 抖动（可选）
+            - 图片转拼豆图纸 (Lab + CIEDE2000 色差匹配)
+            - 主体提取 (TFLite U2Net 自动 + OpenCV GrabCut 手动)
+            - 三套调色板 (Artkal C、Artkal S、MARD)
+            - Floyd-Steinberg 抖动 (可选)
             - 用料清单导出 PNG/CSV
 
             ## 下载
-            - `pindou-v1.0-arm64.apk` - 64 位机型（推荐）
+            - `pindou-v1.0-arm64.apk` - 64 位机型 (推荐)
             - `pindou-v1.0-armv7.apk` - 32 位老机型
+            - `pindou-v1.0.apk` - 通用版 (含两种架构, 体积较大)
           files: |
             output/*.apk
           prerelease: false
