@@ -20,16 +20,16 @@ android {
 
     val keystorePath = System.getenv("PINDOU_KEYSTORE_PATH")
     val keystorePass = System.getenv("PINDOU_KEYSTORE_PASS") ?: ""
-    val keyAlias = System.getenv("PINDOU_KEY_ALIAS") ?: ""
-    val keyPass = System.getenv("PINDOU_KEY_PASS") ?: ""
+    val keyAliasStr = System.getenv("PINDOU_KEY_ALIAS") ?: ""
+    val keyPassStr = System.getenv("PINDOU_KEY_PASS") ?: ""
 
     signingConfigs {
         if (keystorePath != null) {
             create("release") {
                 storeFile = file(keystorePath)
                 storePassword = keystorePass
-                keyAlias = keyAlias
-                keyPassword = keyPass
+                keyAlias = keyAliasStr
+                keyPassword = keyPassStr
             }
         }
     }
