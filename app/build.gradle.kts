@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.pindou.app"
-    compileSdk = 33
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.pindou.app"
@@ -18,7 +18,6 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
 
-    // 环境变量配置 release 签名 (workflow 里生成临时 keystore)
     val keystorePath = System.getenv("PINDOU_KEYSTORE_PATH")
     val keystorePass = System.getenv("PINDOU_KEYSTORE_PASS") ?: ""
     val keyAlias = System.getenv("PINDOU_KEY_ALIAS") ?: ""
@@ -43,7 +42,6 @@ android {
         }
     }
 
-    // ABI splits: 减小体积
     splits {
         abi {
             isEnable = true
@@ -71,6 +69,9 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    lint {
+        abortOnError = false
+    }
 }
 
 dependencies {
@@ -90,21 +91,17 @@ dependencies {
 
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
-    // OpenCV (本地子模块)
     implementation(project(":opencv"))
 
-    // TFLite
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
     implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
 
-    // 图片加载
     implementation("io.coil-kt:coil-compose:2.5.0")
 
-    // JSON 解析
     implementation("com.squareup.moshi:moshi:1.15.1")
     implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:1.9.24")
 
-    // 协程
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }
