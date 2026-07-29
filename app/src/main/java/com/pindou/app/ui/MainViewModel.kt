@@ -36,8 +36,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var useDither by mutableStateOf(false)
         private set
-    var gridSize by mutableStateOf(50)
-        private set
+    // val to avoid JVM setGridSize(I)V clash with fun setGridSize below
+    private val _gridSize = mutableStateOf(50)
+    val gridSize: Int by _gridSize
 
     var isProcessing by mutableStateOf(false)
         private set
@@ -72,7 +73,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setGridSize(size: Int) {
-        gridSize = size.coerceIn(10, 200)
+        _gridSize.value = size.coerceIn(10, 200)
         grid = null
     }
 
