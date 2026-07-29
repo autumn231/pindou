@@ -31,6 +31,8 @@ jobs:
           mkdir -p opencv/src/main/jniLibs
           cp -r OpenCV-android-sdk/sdk/native/libs/arm64-v8a opencv/src/main/jniLibs/
           rm -rf OpenCV-android-sdk opencv-4.10.0-android-sdk.zip
+          echo "=== opencv jniLibs ==="
+          find opencv/src/main/jniLibs -name "*.so" -ls
           echo "=== opencv android sources remaining ==="
           ls opencv/src/main/java/org/opencv/android/
       - name: Download U2Net TFLite model
@@ -61,6 +63,11 @@ jobs:
         run: |
           set -o pipefail
           gradle assembleRelease --no-daemon --stacktrace --info 2>&1 | tee build.log
+      - name: Verify APK native libs
+        run: |
+          echo "=== APK contents (.so files) ==="
+          unzip -l app/build/outputs/apk/release/app-release.apk | grep -E "\.so" || \
+            { echo "ERROR: NO .so FILES IN APK!"; exit 1; }
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -73,7 +80,7 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk output/pindou-v1.0.apk
+          cp app/build/outputs/apk/release/app-release.apk output/pindou-v1.0.apk
           ls -lh output/
       - name: Create Release v1.0
         uses: softprops/action-gh-release@v2
