@@ -34,6 +34,7 @@ class PindouApp : Application() {
             System.load(soPath)
             Log.i(TAG, "System.load($soPath) succeeded")
         } catch (e: Throwable) {
+            // 加载失败不抛出, 仅记录; GrabCut 调用时会再报错
             Log.e(TAG, "System.load absolute path FAILED", e)
         }
     }
