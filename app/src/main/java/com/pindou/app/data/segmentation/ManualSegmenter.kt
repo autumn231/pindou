@@ -2,6 +2,7 @@ package com.pindou.app.data.segmentation
 
 import android.graphics.Bitmap
 import android.graphics.Rect
+import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -11,9 +12,14 @@ import org.opencv.imgproc.Imgproc
 
 /**
  * 手动主体提取: OpenCV GrabCut
- * 用户框选矩形, 算法迭代分割, 失败可手动加画笔修正
+ * 用户框选矩形, 算法迭代分割
  */
 class ManualSegmenter {
+
+    init {
+        // 兜底: 确保任意入口都加载了 OpenCV native 库
+        OpenCVLoader.initLocal()
+    }
 
     /**
      * @param source 原图
@@ -22,27 +28,36 @@ class ManualSegmenter {
      * @return mask: 1 = 前景, 0 = 背景, 长度 = source.width * source.height
      */
     fun grabCut(source: Bitmap, rect: Rect, iterations: Int = 5): IntArray {
+        // Utils.bitmapToMat 要求可读写的 ARGB_8888 bitmap (hardware bitmap 不支持)
+        val src = if (source.config == Bitmap.Config.ARGB_8888 && !source.isRecycled) {
+            source
+        } else {
+            source.copy(Bitmap.Config.ARGB_8888, false)
+        }
+
         val srcMat = Mat()
-        Utils.bitmapToMat(source, srcMat)
+        Utils.bitmapToMat(src, srcMat)
         Imgproc.cvtColor(srcMat, srcMat, Imgproc.COLOR_RGBA2RGB)
 
-        val mask = Mat(source.height, source.width, CvType.CV_8UC1, Scalar(0.0))
+        val mask = Mat(src.height, src.width, CvType.CV_8UC1, Scalar(0.0))
         val bgdModel = Mat()
         val fgdModel = Mat()
+        val left = rect.left.coerceIn(0, src.width - 1)
+        val top = rect.top.coerceIn(0, src.height - 1)
         val cvRect = CvRect(
-            rect.left.coerceAtLeast(0),
-            rect.top.coerceAtLeast(0),
-            rect.width().coerceAtLeast(1).coerceAtMost(source.width - rect.left.coerceAtLeast(0)),
-            rect.height().coerceAtLeast(1).coerceAtMost(source.height - rect.top.coerceAtLeast(0))
+            left,
+            top,
+            rect.width().coerceIn(1, src.width - left),
+            rect.height().coerceIn(1, src.height - top)
         )
 
         Imgproc.grabCut(srcMat, mask, cvRect, bgdModel, fgdModel, iterations, Imgproc.GC_INIT_WITH_RECT)
 
         // mask 取值: 0=bg, 1=fg, 2=probable bg, 3=probable fg
-        val maskBytes = ByteArray(source.width * source.height)
+        val maskBytes = ByteArray(src.width * src.height)
         mask.get(0, 0, maskBytes)
 
-        val result = IntArray(source.width * source.height)
+        val result = IntArray(src.width * src.height)
         for (i in maskBytes.indices) {
             val v = maskBytes[i].toInt() and 0xFF
             result[i] = if (v == 1 || v == 3) 1 else 0
@@ -52,6 +67,8 @@ class ManualSegmenter {
         mask.release()
         bgdModel.release()
         fgdModel.release()
+
+        if (src !== source) src.recycle()
 
         return result
     }
