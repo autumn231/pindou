@@ -2,6 +2,7 @@ package com.pindou.app.data.segmentation
 
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.util.Log
 import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
 import org.opencv.core.CvType
@@ -16,9 +17,22 @@ import org.opencv.imgproc.Imgproc
  */
 class ManualSegmenter {
 
-    init {
-        // 兜底: 确保任意入口都加载了 OpenCV native 库
-        OpenCVLoader.initLocal()
+    companion object {
+        private const val TAG = "ManualSegmenter"
+        // 静态块: 类加载时确保 OpenCV native 库已加载, 防止 Mat() 触发 UnsatisfiedLinkError
+        init {
+            try {
+                val ok = OpenCVLoader.initLocal()
+                Log.i(TAG, "static init: OpenCVLoader.initLocal() = $ok")
+                if (!ok) {
+                    System.loadLibrary("opencv_java4")
+                    Log.i(TAG, "static init: System.loadLibrary fallback ok")
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "static init: load OpenCV FAILED", e)
+                throw e
+            }
+        }
     }
 
     /**
