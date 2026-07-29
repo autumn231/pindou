@@ -63,8 +63,6 @@ jobs:
           gradle assembleRelease --no-daemon --stacktrace --info 2>&1 | tee build.log
       - name: Zipalign APK (page-align .so for in-place mmap)
         run: |
-          # AGP 输出的 APK 已签名但可能未页对齐; 用 SDK 的 zipalign -p 4 强制 4KB 页对齐
-          # 这是 extractNativeLibs=false 时 .so 能被 mmap 加载的关键
           ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}
           ZIPALIGN=$(find $ANDROID_HOME -name zipalign 2>/dev/null | head -1)
           echo "zipalign: $ZIPALIGN"
@@ -73,7 +71,6 @@ jobs:
           SRC=app/build/outputs/apk/release/app-release.apk
           ALIGNED=/tmp/app-release-aligned.apk
           $ZIPALIGN -f -p 4 "$SRC" "$ALIGNED"
-          # 重新签名 (zipalign 后签名失效)
           $APKSIGNER sign --ks $HOME/pindou.keystore --ks-pass pass:pindou123 \
             --ks-key-alias pindou --key-pass pass:pindou123 --out "$SRC" "$ALIGNED"
           $APKSIGNER verify --verbose "$SRC" 2>&1 | head -5
@@ -115,22 +112,22 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/release/app-release.apk output/pindou-v1.0.2.apk
+          cp app/build/outputs/apk/release/app-release.apk output/pindou-v1.0.3.apk
           ls -lh output/
-      - name: Create Release v1.0.2
+      - name: Create Release v1.0.3
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.2
-          name: v1.0.2
+          tag_name: v1.0.3
+          name: v1.0.3
           body: |
-            # 拼豆 v1.0.2
-            修复 GrabCut 闪退 (.so 加载失败)。
+            # 拼豆 v1.0.3
+            修复启动闪退。
             ## 修复
-            - 改用 `extractNativeLibs=false` + `useLegacyPackaging=false` (现代打包方式)
-            - 构建后用 `zipalign -p 4` 强制页对齐, 确保 .so 可被直接 mmap 加载
-            - 根因: 之前 .so 以 Deflated 压缩且未页对齐, 导致 `dlopen` 失败 → `Mat.n_Mat()` 找不到 JNI 实现
+            - TFLite 初始化 (U2Net) 改为后台异步执行 + catch Throwable
+            - 根因: 之前 `MainViewModel.init {}` 在主线程同步初始化 TFLite Interpreter, 加载 native 库失败时抛异常导致 ViewModel 创建失败 → App 启动即崩
+            - 现在: TFLite 初始化失败只记录错误, App 正常启动, 自动抠图降级为不可用 (手动 GrabCut 仍可用)
             ## 下载
-            - `pindou-v1.0.2.apk` - arm64-v8a (适配 Android 8.0+ / targetSdk 33 Android 13)
+            - `pindou-v1.0.3.apk` - arm64-v8a (适配 Android 8.0+ / targetSdk 33 Android 13)
           files: |
             output/*.apk
           prerelease: false
