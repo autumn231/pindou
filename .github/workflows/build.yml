@@ -68,6 +68,18 @@ jobs:
           echo "=== APK contents (.so files) ==="
           unzip -l app/build/outputs/apk/release/app-release.apk | grep -E "\.so" || \
             { echo "ERROR: NO .so FILES IN APK!"; exit 1; }
+          echo "=== Verify extractNativeLibs in manifest ==="
+          pip install --quiet androguard
+          python3 -c "
+          import logging; logging.disable(logging.CRITICAL)
+          from androguard.core.apk import APK
+          a = APK('app/build/outputs/apk/release/app-release.apk')
+          app = a.xml['AndroidManifest.xml'].find('.//application')
+          ns = '{http://schemas.android.com/apk/res/android}'
+          print('extractNativeLibs:', app.get(ns+'extractNativeLibs'))
+          assert app.get(ns+'extractNativeLibs') == 'true', 'extractNativeLibs must be true!'
+          print('OK: extractNativeLibs=true')
+          "
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -80,24 +92,27 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/release/app-release.apk output/pindou-v1.0.apk
+          cp app/build/outputs/apk/release/app-release.apk output/pindou-v1.0.1.apk
           ls -lh output/
-      - name: Create Release v1.0
+      - name: Create Release v1.0.1
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0
-          name: v1.0
+          tag_name: v1.0.1
+          name: v1.0.1
           body: |
-            # 拼豆 v1.0
-            首个版本。
-            ## 功能
+            # 拼豆 v1.0.1
+            修复 GrabCut 闪退 (OpenCV native 库未加载)。
+            ## 修复
+            - AndroidManifest.xml 显式 `extractNativeLibs=true`, 确保 `libopencv_java4.so` 安装时解压并可被 `System.loadLibrary` 加载
+            - 根因: 之前 AGP 默认 `extractNativeLibs=false`, .so 虽在 APK 中但未解压到 nativeLibraryDir, 导致 `Mat.n_Mat()` 找不到 JNI 实现
+            ## 功能 (同 v1.0)
             - 图片转拼豆图纸 (Lab + CIEDE2000 色差匹配)
             - 主体提取 (TFLite U2Net 自动 + OpenCV GrabCut 手动)
             - 三套调色板 (Artkal C、Artkal S、MARD)
             - Floyd-Steinberg 抖动 (可选)
             - 用料清单导出 PNG/CSV
             ## 下载
-            - `pindou-v1.0.apk` - arm64-v8a (适配 Android 8.0+ / targetSdk 33 Android 13)
+            - `pindou-v1.0.1.apk` - arm64-v8a (适配 Android 8.0+ / targetSdk 33 Android 13)
           files: |
             output/*.apk
           prerelease: false
