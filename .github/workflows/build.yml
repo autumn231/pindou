@@ -26,11 +26,10 @@ jobs:
           mkdir -p opencv/src/main/java
           cp -r OpenCV-android-sdk/sdk/java/src/* opencv/src/main/java/
           # Remove ALL camera view classes (unused by app; depend on BuildConfig + res + Camera APIs)
-          # Keeps: Utils, OpenCVLoader, StaticHelper, AsyncServiceHelper, Loader/InstallCallbackInterface
           rm -f opencv/src/main/java/org/opencv/android/*Camera*.java
+          # 仅打包 arm64-v8a (现代安卓机型, targetSdk 33 / Android 13)
           mkdir -p opencv/src/main/jniLibs
           cp -r OpenCV-android-sdk/sdk/native/libs/arm64-v8a opencv/src/main/jniLibs/
-          cp -r OpenCV-android-sdk/sdk/native/libs/armeabi-v7a opencv/src/main/jniLibs/
           rm -rf OpenCV-android-sdk opencv-4.10.0-android-sdk.zip
           echo "=== opencv android sources remaining ==="
           ls opencv/src/main/java/org/opencv/android/
@@ -74,9 +73,7 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk output/pindou-v1.0-arm64.apk 2>/dev/null || true
-          cp app/build/outputs/apk/release/app-armeabi-v7a-release.apk output/pindou-v1.0-armv7.apk 2>/dev/null || true
-          cp app/build/outputs/apk/release/app-release.apk output/pindou-v1.0.apk 2>/dev/null || true
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk output/pindou-v1.0.apk
           ls -lh output/
       - name: Create Release v1.0
         uses: softprops/action-gh-release@v2
@@ -93,9 +90,7 @@ jobs:
             - Floyd-Steinberg 抖动 (可选)
             - 用料清单导出 PNG/CSV
             ## 下载
-            - `pindou-v1.0-arm64.apk` - 64 位机型 (推荐)
-            - `pindou-v1.0-armv7.apk` - 32 位老机型
-            - `pindou-v1.0.apk` - 通用版 (含两种架构, 体积较大)
+            - `pindou-v1.0.apk` - arm64-v8a (适配 Android 8.0+ / targetSdk 33 Android 13)
           files: |
             output/*.apk
           prerelease: false
