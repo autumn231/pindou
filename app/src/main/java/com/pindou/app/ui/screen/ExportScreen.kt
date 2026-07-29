@@ -137,7 +137,7 @@ fun ExportScreen(
                             Box(
                                 Modifier
                                     .size(24.dp)
-                                    .background(Color.rgb(c.r, c.g, c.b))
+                                    .background(Color(c.r, c.g, c.b))
                             )
                             Spacer(Modifier.width(12.dp))
                             Text(c.code, modifier = Modifier.width(80.dp))

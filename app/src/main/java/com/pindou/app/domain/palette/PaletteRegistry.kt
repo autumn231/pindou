@@ -7,7 +7,7 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.io.IOException
 
 /**
- * 调色板注册表: 从 assets/palettes/*.json 加载色卡
+ * 调色板注册表: 从 assets/palettes 目录加载色卡
  */
 class PaletteRegistry(private val context: Context) {
 
