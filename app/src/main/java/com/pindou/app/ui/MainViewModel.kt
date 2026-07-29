@@ -99,7 +99,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     error = "自动提取不可用, 请使用手动模式"
                     onResult(false)
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Throwable 而非 Exception: 捕获 UnsatisfiedLinkError 等 Error 避免闪退
                 error = e.message ?: "自动提取失败"
                 onResult(false)
             } finally {
@@ -120,7 +121,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 mask = m
                 maskedBitmap = m.applyToBitmap(src)
                 onResult(true)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Throwable 而非 Exception: 捕获 UnsatisfiedLinkError 等 Error 避免闪退
                 error = e.message ?: "手动提取失败"
                 onResult(false)
             } finally {
