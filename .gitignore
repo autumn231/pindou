@@ -1,0 +1,26 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.apk
+*.aab
+
+# OpenCV SDK (downloaded in workflow)
+opencv/src/main/java/
+opencv/src/main/jniLibs/
+
+# Generated assets
+app/src/main/assets/models/
+app/src/main/assets/palettes/*.json
+app/src/main/res/mipmap-*/
+!app/src/main/res/mipmap-anydpi-v26/
+
+# Keystore
+*.keystore
+*.jks
