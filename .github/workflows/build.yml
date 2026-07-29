@@ -1,10 +1,8 @@
 name: Build and Release APK
-
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -12,18 +10,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
-
       - name: Download OpenCV Android SDK
         run: |
           wget -q https://github.com/opencv/opencv/releases/download/4.10.0/opencv-4.10.0-android-sdk.zip
@@ -36,23 +31,20 @@ jobs:
           rm -rf OpenCV-android-sdk opencv-4.10.0-android-sdk.zip
           echo "=== opencv module tree ==="
           find opencv -maxdepth 4 -type d | head -20
-
       - name: Download U2Net TFLite model
         run: |
           mkdir -p app/src/main/assets/models
           wget -q -O app/src/main/assets/models/u2net.tflite \
-            https://github.com/ailia-ai/ailia-models-tflite/raw/main/background_removal/u2net/u2netp_full_integer_quant.tflite || \
+            https://storage.googleapis.com/ailia-models-tflite/u2net/u2netp_float32.tflite || \
           wget -q -O app/src/main/assets/models/u2net.tflite \
-            https://github.com/ailia-ai/ailia-models-tflite/raw/main/background_removal/u2net/u2netp_float32.tflite
+            https://storage.googleapis.com/ailia-models-tflite/u2net/u2netp_full_integer_quant.tflite
           ls -lh app/src/main/assets/models/
-
       - name: Fetch palettes and generate icon
         run: |
           pip install pillow
           python3 scripts/fetch_palettes.py
           python3 scripts/generate_icon.py
           ls -lh app/src/main/assets/palettes/
-
       - name: Generate release keystore
         run: |
           keytool -genkey -v -keystore $HOME/pindou.keystore \
@@ -63,12 +55,10 @@ jobs:
           echo "PINDOU_KEYSTORE_PASS=pindou123" >> $GITHUB_ENV
           echo "PINDOU_KEY_ALIAS=pindou" >> $GITHUB_ENV
           echo "PINDOU_KEY_PASS=pindou123" >> $GITHUB_ENV
-
       - name: Build APK
         run: |
           set -o pipefail
           gradle assembleRelease --no-daemon --stacktrace --info 2>&1 | tee build.log
-
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -78,7 +68,6 @@ jobs:
             build.log
             app/build/reports/
             build/reports/
-
       - name: Rename APK
         run: |
           mkdir -p output
@@ -86,7 +75,6 @@ jobs:
           cp app/build/outputs/apk/release/app-armeabi-v7a-release.apk output/pindou-v1.0-armv7.apk 2>/dev/null || true
           cp app/build/outputs/apk/release/app-release.apk output/pindou-v1.0.apk 2>/dev/null || true
           ls -lh output/
-
       - name: Create Release v1.0
         uses: softprops/action-gh-release@v2
         with:
@@ -94,16 +82,13 @@ jobs:
           name: v1.0
           body: |
             # 拼豆 v1.0
-
             首个版本。
-
             ## 功能
             - 图片转拼豆图纸 (Lab + CIEDE2000 色差匹配)
             - 主体提取 (TFLite U2Net 自动 + OpenCV GrabCut 手动)
             - 三套调色板 (Artkal C、Artkal S、MARD)
             - Floyd-Steinberg 抖动 (可选)
             - 用料清单导出 PNG/CSV
-
             ## 下载
             - `pindou-v1.0-arm64.apk` - 64 位机型 (推荐)
             - `pindou-v1.0-armv7.apk` - 32 位老机型
