@@ -22,7 +22,11 @@ object ColorSpaces {
     private const val Zn = 1.08883
 
     /** RGB(0..255) -> Lab(L: 0..100, a/b: ~-128..128) */
-    fun rgbToLab(r: Int, g: Int, b: Int): DoubleArray {
+    fun rgbToLab(r: Int, g: Int, b: Int): DoubleArray =
+        rgbToLab(r.toDouble(), g.toDouble(), b.toDouble())
+
+    /** 浮点 RGB 重载, 保留分数精度 (抖动用) */
+    fun rgbToLab(r: Double, g: Double, b: Double): DoubleArray {
         // sRGB -> linear RGB
         val rl = inverseGamma(r / 255.0)
         val gl = inverseGamma(g / 255.0)
