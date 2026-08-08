@@ -21,13 +21,13 @@ fun IntArray.applyToBitmap(source: Bitmap): Bitmap {
     if (size != w * h) {
         throw IllegalArgumentException("mask size ${size} != bitmap ${w * h}")
     }
-    val srcPixels = IntArray(w * h)
-    source.getPixels(srcPixels, 0, w, 0, 0, w, h)
-    val outPixels = IntArray(w * h)
-    for (i in srcPixels.indices) {
-        outPixels[i] = if (this[i] != 0) srcPixels[i] else 0
+    // 原地修改, 避免双倍内存分配
+    val pixels = IntArray(w * h)
+    source.getPixels(pixels, 0, w, 0, 0, w, h)
+    for (i in pixels.indices) {
+        if (this[i] == 0) pixels[i] = 0
     }
     val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-    result.setPixels(outPixels, 0, w, 0, 0, w, h)
+    result.setPixels(pixels, 0, w, 0, 0, w, h)
     return result
 }

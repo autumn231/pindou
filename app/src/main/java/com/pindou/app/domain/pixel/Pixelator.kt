@@ -3,10 +3,11 @@ package com.pindou.app.domain.pixel
 import android.graphics.Bitmap
 import com.pindou.app.domain.color.Quantizer
 import com.pindou.app.domain.model.PixelGrid
+import kotlin.math.roundToInt
 
 /**
  * 像素化: 把 Bitmap 下采样到 width x height 网格, 每格一个拼豆
- * 双线性区域平均采样 + CIEDE2000 量化
+ * 区域平均采样 + CIEDE2000 量化
  */
 class Pixelator(private val quantizer: Quantizer) {
 
@@ -22,6 +23,11 @@ class Pixelator(private val quantizer: Quantizer) {
         targetHeight: Int,
         mask: IntArray? = null
     ): PixelGrid {
+        require(targetWidth > 0 && targetHeight > 0)
+        require(mask == null || mask.size == targetWidth * targetHeight) {
+            "mask 长度 ${mask?.size} != ${targetWidth * targetHeight}"
+        }
+
         val indices = IntArray(targetWidth * targetHeight) { -1 }
 
         val srcW = source.width
@@ -39,19 +45,22 @@ class Pixelator(private val quantizer: Quantizer) {
                     indices[idx] = -1
                     continue
                 }
-                val srcX0 = (x * sx).toInt().coerceIn(0, srcW - 1)
-                val srcX1 = ((x + 1) * sx).toInt().coerceIn(0, srcW - 1)
-                val srcY0 = (y * sy).toInt().coerceIn(0, srcH - 1)
-                val srcY1 = ((y + 1) * sy).toInt().coerceIn(0, srcH - 1)
+                // 排他上界, 避免相邻格重叠采样
+                val srcX0 = (x * sx).toInt().coerceIn(0, srcW)
+                val srcX1 = ((x + 1) * sx).toInt().coerceIn(srcX0 + 1, srcW)
+                val srcY0 = (y * sy).toInt().coerceIn(0, srcH)
+                val srcY1 = ((y + 1) * sy).toInt().coerceIn(srcY0 + 1, srcH)
 
-                var r = 0
-                var g = 0
-                var b = 0
+                var r = 0L
+                var g = 0L
+                var b = 0L
                 var count = 0
-                for (syi in srcY0..srcY1) {
+                for (syi in srcY0 until srcY1) {
                     val rowOffset = syi * srcW
-                    for (sxi in srcX0..srcX1) {
+                    for (sxi in srcX0 until srcX1) {
                         val c = pixels[rowOffset + sxi]
+                        // 跳过完全透明的像素, 避免拉暗均值
+                        if ((c ushr 24) and 0xFF == 0) continue
                         r += (c shr 16) and 0xFF
                         g += (c shr 8) and 0xFF
                         b += c and 0xFF
@@ -59,7 +68,12 @@ class Pixelator(private val quantizer: Quantizer) {
                     }
                 }
                 if (count == 0) continue
-                indices[idx] = quantizer.quantize(r / count, g / count, b / count)
+                // 浮点除法避免整数截断精度损失
+                indices[idx] = quantizer.quantize(
+                    (r.toFloat() / count).roundToInt(),
+                    (g.toFloat() / count).roundToInt(),
+                    (b.toFloat() / count).roundToInt()
+                )
             }
         }
 

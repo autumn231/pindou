@@ -1,20 +1,23 @@
 package com.pindou.app.domain.palette
 
 import android.content.Context
+import android.util.Log
 import com.pindou.app.domain.model.Palette
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 调色板注册表: 从 assets/palettes 目录加载色卡
+ * 线程安全: 使用 ConcurrentHashMap 缓存
  */
 class PaletteRegistry(private val context: Context) {
 
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     private val adapter = moshi.adapter(Palette::class.java)
 
-    private val cache = HashMap<String, Palette>()
+    private val cache = ConcurrentHashMap<String, Palette>()
 
     val availablePalettes: List<Pair<String, String>> = listOf(
         "artkal_c" to "Artkal C (2.6mm)",
@@ -27,6 +30,7 @@ class PaletteRegistry(private val context: Context) {
 
     fun load(key: String): Palette {
         cache[key]?.let { return it }
+        require(key.matches(Regex("[a-z0-9_]+"))) { "非法调色板 key: $key" }
         val assetPath = "palettes/$key.json"
         val json = try {
             context.assets.open(assetPath).bufferedReader().use { it.readText() }
@@ -35,6 +39,7 @@ class PaletteRegistry(private val context: Context) {
         }
         val palette = adapter.fromJson(json)
             ?: throw IllegalStateException("调色板解析失败: $assetPath")
+        require(palette.colors.isNotEmpty()) { "调色板为空: $assetPath" }
         cache[key] = palette
         return palette
     }
