@@ -1,6 +1,8 @@
 package com.pindou.app.ui.screen
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,7 +13,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -20,6 +24,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -57,26 +64,8 @@ fun EditorScreen(
     val gridSize by vm::gridSize
     val maskedBitmap by vm::maskedBitmap
 
-    // 预览图异步生成, 避免主线程渲染大 Bitmap
-    var previewBmp by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    val exporter = remember { Exporter(vm.paletteRegistry) }
-    val currentGrid = grid
-    LaunchedEffect(currentGrid) {
-        if (currentGrid != null) {
-            previewBmp = withContext(Dispatchers.Default) {
-                exporter.exportPatternPng(currentGrid, cellSize = 8)
-            }
-        } else {
-            previewBmp = null
-        }
-    }
-    DisposableEffect(previewBmp) {
-        onDispose { previewBmp?.recycle() }
-    }
-
-    // Slider 拖动时用本地值缓存, 避免持续清空 grid
-    var sliderValue by remember { mutableStateOf(gridSize.toFloat()) }
-    LaunchedEffect(gridSize) { sliderValue = gridSize.toFloat() }
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var projectName by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -85,6 +74,15 @@ fun EditorScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    // 保存项目
+                    IconButton(onClick = {
+                        projectName = vm.currentProject?.name ?: ""
+                        showSaveDialog = true
+                    }) {
+                        Icon(Icons.Default.Save, contentDescription = "保存")
                     }
                 }
             )
@@ -103,17 +101,47 @@ fun EditorScreen(
                     .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
-                previewBmp?.let { bmp ->
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
+                grid?.let { g ->
+                    val exporter = remember { Exporter(vm.paletteRegistry) }
+                    // 异步生成预览 Bitmap
+                    var previewBmp by remember { mutableStateOf<Bitmap?>(null) }
+                    LaunchedEffect(g) {
+                        previewBmp = withContext(Dispatchers.Default) {
+                            exporter.exportPatternPng(g, cellSize = 8)
+                        }
+                    }
+                    DisposableEffect(previewBmp) {
+                        val bmp = previewBmp
+                        onDispose { bmp?.recycle() }
+                    }
+                    val bmp = previewBmp
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                    } else {
+                        CircularProgressIndicator()
+                    }
                 } ?: Text("点击下方\"生成图纸\"", style = MaterialTheme.typography.bodyLarge)
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(8.dp))
+
+            // 图纸统计信息
+            grid?.let { g ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Text("${g.width}×${g.height}", style = MaterialTheme.typography.labelMedium)
+                    Text("${g.colorCount} 种颜色", style = MaterialTheme.typography.labelMedium)
+                    Text("${g.totalBeads} 颗", style = MaterialTheme.typography.labelMedium)
+                }
+                Spacer(Modifier.height(8.dp))
+            }
 
             error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error)
@@ -146,11 +174,10 @@ fun EditorScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            Text("网格尺寸: ${sliderValue.toInt()}")
+            Text("网格尺寸: $gridSize")
             Slider(
-                value = sliderValue,
-                onValueChange = { sliderValue = it },
-                onValueChangeFinished = { vm.setGridSize(sliderValue.toInt()) },
+                value = gridSize.toFloat(),
+                onValueChange = { vm.setGridSize(it.toInt()) },
                 valueRange = 10f..200f,
                 steps = 18
             )
@@ -192,5 +219,31 @@ fun EditorScreen(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
         }
+    }
+
+    // 保存项目对话框
+    if (showSaveDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveDialog = false },
+            title = { Text("保存项目") },
+            text = {
+                OutlinedTextField(
+                    value = projectName,
+                    onValueChange = { projectName = it },
+                    label = { Text("项目名称") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val name = projectName.trim().ifEmpty { "未命名" }
+                    vm.saveProject(name)
+                    showSaveDialog = false
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveDialog = false }) { Text("取消") }
+            }
+        )
     }
 }

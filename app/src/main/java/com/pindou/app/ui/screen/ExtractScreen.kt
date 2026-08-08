@@ -17,18 +17,28 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.InvertColors
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +80,11 @@ fun ExtractScreen(
     var dragEnd by remember { mutableStateOf<Offset?>(null) }
     var manualRect by remember { mutableStateOf<Rect?>(null) }
 
+    // 图像增强弹窗
+    var showEnhanceSheet by remember { mutableStateOf(false) }
+    var claheStrength by remember { mutableStateOf(2.0f) }
+    var gammaValue by remember { mutableStateOf(1.0f) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -77,6 +92,30 @@ fun ExtractScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    // 图像增强
+                    IconButton(onClick = { showEnhanceSheet = true }) {
+                        Icon(Icons.Default.Tune, contentDescription = "图像增强")
+                    }
+                    // 旋转原图
+                    IconButton(onClick = {
+                        vm.rotateSource()
+                        manualRect = null
+                        dragStart = null
+                        dragEnd = null
+                    }) {
+                        Icon(Icons.Default.RotateRight, contentDescription = "旋转90度")
+                    }
+                    // 清除蒙版, 恢复原图
+                    if (maskedBitmap !== sourceBitmap) {
+                        IconButton(onClick = {
+                            vm.clearMask()
+                            manualRect = null
+                        }) {
+                            Icon(Icons.Default.Clear, contentDescription = "清除蒙版")
+                        }
                     }
                 }
             )
@@ -209,11 +248,146 @@ fun ExtractScreen(
             }
 
             Spacer(Modifier.height(8.dp))
-            Text(
-                "提示: 在图上拖拽画矩形框选主体, 然后点手动 GrabCut",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (maskedBitmap !== sourceBitmap) {
+                Text(
+                    "已提取主体 (背景已透明)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            } else {
+                Text(
+                    "提示: 在图上拖拽画矩形框选主体, 然后点手动 GrabCut",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+
+    // 图像增强底部弹窗
+    if (showEnhanceSheet) {
+        val sheetState = rememberModalBottomSheetState()
+        ModalBottomSheet(
+            onDismissRequest = { showEnhanceSheet = false },
+            sheetState = sheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp)
+            ) {
+                Text(
+                    "图像增强",
+                    style = MaterialTheme.typography.titleLarge
+                )
+                Text(
+                    "改善光线不均、偏色、过暗/过亮等问题",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(Modifier.height(16.dp))
+
+                if (isProcessing) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(120.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    // 一键自动增强
+                    Button(
+                        onClick = { vm.enhanceAuto() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.AutoFixHigh, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("一键自动增强")
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                    HorizontalDivider()
+                    Spacer(Modifier.height(16.dp))
+
+                    // 白平衡
+                    OutlinedButton(
+                        onClick = { vm.enhanceWhiteBalance() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.InvertColors, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("白平衡 (消除色偏)")
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    // CLAHE 对比度增强
+                    Text("对比度增强 (CLAHE)", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "强度: ${"%.1f".format(claheStrength)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Slider(
+                        value = claheStrength,
+                        onValueChange = { claheStrength = it },
+                        valueRange = 1.0f..5.0f,
+                        steps = 0
+                    )
+                    OutlinedButton(
+                        onClick = { vm.enhanceCLAHE(claheStrength.toDouble()) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("应用对比度增强")
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    // Gamma 亮度校正
+                    Text("亮度校正 (Gamma)", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        when {
+                            gammaValue < 0.9f -> "提亮 (${ "%.2f".format(gammaValue) })"
+                            gammaValue > 1.1f -> "压暗 (${ "%.2f".format(gammaValue) })"
+                            else -> "不变 (1.00)"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Slider(
+                        value = gammaValue,
+                        onValueChange = { gammaValue = it },
+                        valueRange = 0.3f..2.0f
+                    )
+                    OutlinedButton(
+                        onClick = { vm.enhanceGamma(gammaValue.toDouble()) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.WbSunny, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("应用亮度校正")
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        "提示: 增强后需重新提取主体",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(Modifier.height(16.dp))
+                TextButton(
+                    onClick = { showEnhanceSheet = false },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("关闭")
+                }
+            }
         }
     }
 }

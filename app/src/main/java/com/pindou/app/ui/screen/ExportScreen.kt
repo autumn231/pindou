@@ -20,8 +20,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -29,6 +32,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -50,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.pindou.app.ui.MainViewModel
 import com.pindou.app.util.Exporter
+import com.pindou.app.util.saveToGallery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,6 +70,7 @@ fun ExportScreen(
 ) {
     val grid = vm.grid
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     Scaffold(
@@ -76,7 +83,8 @@ fun ExportScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         val g = grid
         if (g == null) {
@@ -86,12 +94,10 @@ fun ExportScreen(
             return@Scaffold
         }
 
-        val palette = remember(g.paletteKey) {
-            try { vm.paletteRegistry.load(g.paletteKey) } catch (e: Exception) { null }
-        }
+        val palette = remember(g.paletteKey) { vm.paletteRegistry.load(g.paletteKey) }
         val exporter = remember { Exporter(vm.paletteRegistry) }
 
-        // 异步生成预览大图, 避免主线程 OOM
+        // 异步生成预览 Bitmap
         var patternBmp by remember { mutableStateOf<Bitmap?>(null) }
         LaunchedEffect(g) {
             patternBmp = withContext(Dispatchers.Default) {
@@ -99,12 +105,11 @@ fun ExportScreen(
             }
         }
         DisposableEffect(patternBmp) {
-            onDispose { patternBmp?.recycle() }
+            val bmp = patternBmp
+            onDispose { bmp?.recycle() }
         }
 
         val usage = remember(g) { g.usageCounts() }
-        val colors = palette?.colors
-        val lastIdx = colors?.lastIndex ?: -1
 
         Column(
             modifier = Modifier
@@ -114,57 +119,125 @@ fun ExportScreen(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            patternBmp?.let { bmp ->
+            // 图纸统计
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("${g.width}×${g.height}", style = MaterialTheme.typography.titleMedium)
+                    Text("尺寸", style = MaterialTheme.typography.labelSmall)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("${g.colorCount}", style = MaterialTheme.typography.titleMedium)
+                    Text("颜色", style = MaterialTheme.typography.labelSmall)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("${g.totalBeads}", style = MaterialTheme.typography.titleMedium)
+                    Text("总颗数", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // 预览图
+            val bmp = patternBmp
+            if (bmp != null) {
                 Image(
                     bitmap = bmp.asImageBitmap(),
                     contentDescription = null,
                     modifier = Modifier.fillMaxWidth(),
                     contentScale = ContentScale.Fit
                 )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(200.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
             }
 
             Spacer(Modifier.height(16.dp))
 
+            // 操作按钮
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // 保存到相册
                 Button(
                     onClick = {
-                        val bmp = patternBmp ?: return@Button
-                        scope.launch(Dispatchers.IO) {
-                            val file = File(context.cacheDir, "pindou_pattern_${System.currentTimeMillis()}.png")
-                            FileOutputStream(file).use { fos ->
-                                bmp.compress(Bitmap.CompressFormat.PNG, 100, fos)
+                        val bmp2 = patternBmp ?: return@Button
+                        scope.launch {
+                            val uri = withContext(Dispatchers.IO) {
+                                bmp2.saveToGallery(
+                                    context,
+                                    "pindou_${System.currentTimeMillis()}.png"
+                                )
+                            }
+                            if (uri != null) {
+                                snackbarHostState.showSnackbar("已保存到相册")
+                            } else {
+                                snackbarHostState.showSnackbar("保存失败")
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("保存到相册")
+                }
+                // 分享图纸 (PNG 压缩在后台线程)
+                OutlinedButton(
+                    onClick = {
+                        val bmp2 = patternBmp ?: return@OutlinedButton
+                        scope.launch {
+                            val file = withContext(Dispatchers.IO) {
+                                File(context.cacheDir, "pindou_pattern_${System.currentTimeMillis()}.png").also { f ->
+                                    FileOutputStream(f).use { bmp2.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                                }
                             }
                             shareFile(context, file, "image/png")
                         }
                     },
                     modifier = Modifier.weight(1f)
-                ) { Text("分享图纸") }
-                OutlinedButton(
-                    onClick = {
-                        scope.launch(Dispatchers.IO) {
-                            val csv = exporter.exportUsageCsv(g)
-                            val file = File(context.cacheDir, "pindou_usage_${System.currentTimeMillis()}.csv")
-                            file.writeText(csv)
-                            shareFile(context, file, "text/csv")
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                ) { Text("分享清单") }
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("分享图纸")
+                }
             }
+
+            Spacer(Modifier.height(8.dp))
+
+            // 分享用料清单 (CSV 写入在后台线程)
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        val file = withContext(Dispatchers.IO) {
+                            val csv = exporter.exportUsageCsv(g)
+                            File(context.cacheDir, "pindou_usage_${System.currentTimeMillis()}.csv").also { f ->
+                                f.writeText(csv)
+                            }
+                        }
+                        shareFile(context, file, "text/csv")
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("分享用料清单 (CSV)") }
 
             Spacer(Modifier.height(24.dp))
 
+            // 用料清单
             Text("用料清单", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(8.dp))
 
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
                     usage.forEach { (idx, count) ->
-                        if (idx !in 0..lastIdx) return@forEach
-                        val c = colors[idx]
+                        val c = palette.colors.getOrNull(idx) ?: return@forEach
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -177,7 +250,7 @@ fun ExportScreen(
                             Spacer(Modifier.width(12.dp))
                             Text(c.code, modifier = Modifier.width(80.dp))
                             Text(c.name, modifier = Modifier.weight(1f))
-                            Text("$count")
+                            Text("$count 颗")
                         }
                     }
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -201,7 +274,6 @@ private fun shareFile(context: Context, file: File, mime: String) {
         }
         context.startActivity(Intent.createChooser(intent, "分享"))
     } catch (e: Exception) {
-        // 无可用应用或 FileProvider 配置错误时不崩溃
-        android.widget.Toast.makeText(context, "分享失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+        // 无可处理分享的 App 时不崩溃
     }
 }
