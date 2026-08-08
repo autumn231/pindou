@@ -17,24 +17,6 @@ import org.opencv.imgproc.Imgproc
  */
 class ManualSegmenter {
 
-    companion object {
-        private const val TAG = "ManualSegmenter"
-        // 静态块: 类加载时确保 OpenCV native 库已加载, 防止 Mat() 触发 UnsatisfiedLinkError
-        init {
-            try {
-                val ok = OpenCVLoader.initLocal()
-                Log.i(TAG, "static init: OpenCVLoader.initLocal() = $ok")
-                if (!ok) {
-                    System.loadLibrary("opencv_java4")
-                    Log.i(TAG, "static init: System.loadLibrary fallback ok")
-                }
-            } catch (e: Throwable) {
-                Log.e(TAG, "static init: load OpenCV FAILED", e)
-                throw e
-            }
-        }
-    }
-
     /**
      * @param source 原图
      * @param rect 框选区域 (在原图坐标系)
@@ -50,40 +32,41 @@ class ManualSegmenter {
         }
 
         val srcMat = Mat()
-        Utils.bitmapToMat(src, srcMat)
-        Imgproc.cvtColor(srcMat, srcMat, Imgproc.COLOR_RGBA2RGB)
-
         val mask = Mat(src.height, src.width, CvType.CV_8UC1, Scalar(0.0))
         val bgdModel = Mat()
         val fgdModel = Mat()
-        val left = rect.left.coerceIn(0, src.width - 1)
-        val top = rect.top.coerceIn(0, src.height - 1)
-        val cvRect = CvRect(
-            left,
-            top,
-            rect.width().coerceIn(1, src.width - left),
-            rect.height().coerceIn(1, src.height - top)
-        )
+        try {
+            Utils.bitmapToMat(src, srcMat)
+            Imgproc.cvtColor(srcMat, srcMat, Imgproc.COLOR_RGBA2RGB)
 
-        Imgproc.grabCut(srcMat, mask, cvRect, bgdModel, fgdModel, iterations, Imgproc.GC_INIT_WITH_RECT)
+            val left = rect.left.coerceIn(0, src.width - 1)
+            val top = rect.top.coerceIn(0, src.height - 1)
+            val cvRect = CvRect(
+                left,
+                top,
+                rect.width().coerceIn(1, src.width - left),
+                rect.height().coerceIn(1, src.height - top)
+            )
 
-        // mask 取值: 0=bg, 1=fg, 2=probable bg, 3=probable fg
-        val maskBytes = ByteArray(src.width * src.height)
-        mask.get(0, 0, maskBytes)
+            Imgproc.grabCut(srcMat, mask, cvRect, bgdModel, fgdModel, iterations, Imgproc.GC_INIT_WITH_RECT)
 
-        val result = IntArray(src.width * src.height)
-        for (i in maskBytes.indices) {
-            val v = maskBytes[i].toInt() and 0xFF
-            result[i] = if (v == 1 || v == 3) 1 else 0
+            // mask 取值: 0=bg, 1=fg, 2=probable bg, 3=probable fg
+            val maskBytes = ByteArray(src.width * src.height)
+            mask.get(0, 0, maskBytes)
+
+            val result = IntArray(src.width * src.height)
+            for (i in maskBytes.indices) {
+                val v = maskBytes[i].toInt() and 0xFF
+                result[i] = if (v == 1 || v == 3) 1 else 0
+            }
+            return result
+        } finally {
+            // 确保异常时也释放 native Mat 内存
+            srcMat.release()
+            mask.release()
+            bgdModel.release()
+            fgdModel.release()
+            if (src !== source) src.recycle()
         }
-
-        srcMat.release()
-        mask.release()
-        bgdModel.release()
-        fgdModel.release()
-
-        if (src !== source) src.recycle()
-
-        return result
     }
 }
