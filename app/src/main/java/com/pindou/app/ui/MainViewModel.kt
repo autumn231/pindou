@@ -17,13 +17,14 @@ import com.pindou.app.domain.pixel.Pixelator
 import com.pindou.app.util.applyToBitmap
 import com.pindou.app.util.scaledToMax
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val paletteRegistry = PaletteRegistry(application)
-    val subjectExtractor = SubjectExtractor(application)
+    private val subjectExtractor = SubjectExtractor(application)
 
     var sourceBitmap by mutableStateOf<Bitmap?>(null)
         private set
@@ -45,9 +46,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var error by mutableStateOf<String?>(null)
         private set
 
-    private var mask: IntArray? = null
+    // 状态响应: isAutoAvailable 必须是 Compose State, 否则 TFLite 异步加载后 UI 不重组
+    var isAutoAvailable by mutableStateOf(false)
+        private set
 
-    val isAutoAvailable: Boolean get() = subjectExtractor.isAutoAvailable()
+    private var mask: IntArray? = null
+    // 串行化耗时操作, 避免快速连点并发写状态
+    private var processJob: Job? = null
 
     init {
         // 异步初始化 TFLite, 失败不影响 App 启动 (自动抠图不可用时降级到手动)
@@ -55,8 +60,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             withContext(Dispatchers.Default) {
                 try {
                     subjectExtractor.init()
+                    isAutoAvailable = subjectExtractor.isAutoAvailable()
                 } catch (e: Throwable) {
-                    // 记录但不崩溃: 自动提取不可用, 用户仍可用手动 GrabCut
                     error = "自动提取初始化失败: ${e.message}"
                 }
             }
@@ -65,26 +70,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSource(bmp: Bitmap) {
         val scaled = bmp.scaledToMax(1080)
+        // 回收旧 Bitmap, 避免内存堆积
+        if (scaled !== bmp) {
+            // 缩放产生了新对象, 原图可回收
+            bmp.recycle()
+        }
+        val oldSource = sourceBitmap
+        val oldMasked = maskedBitmap
         sourceBitmap = scaled
         maskedBitmap = scaled
         mask = null
         grid = null
         error = null
+        // 旧的 maskedBitmap 如果与 oldSource 不同实例, 单独回收
+        if (oldMasked !== null && oldMasked !== oldSource) oldMasked?.recycle()
+        oldSource?.recycle()
     }
 
     fun setPalette(key: String) {
         paletteKey = key
         grid = null
+        error = null
     }
 
     fun toggleDither() {
         useDither = !useDither
         grid = null
+        error = null
     }
 
     fun setGridSize(size: Int) {
         _gridSize.value = size.coerceIn(10, 200)
         grid = null
+        error = null
     }
 
     fun skipExtraction() {
@@ -92,61 +110,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         maskedBitmap = sourceBitmap
     }
 
-    fun extractAuto(onResult: (Boolean) -> Unit) {
-        viewModelScope.launch {
+    private fun startProcessing(block: suspend () -> Unit) {
+        // 取消上一个耗时操作, 串行化避免并发污染状态
+        processJob?.cancel()
+        processJob = viewModelScope.launch {
             isProcessing = true
             error = null
             try {
-                val src = sourceBitmap ?: run { onResult(false); return@launch }
-                val m = withContext(Dispatchers.Default) {
-                    subjectExtractor.extractAuto(src)
+                block()
+            } finally {
+                isProcessing = false
+            }
+        }
+    }
+
+    fun extractAuto(onResult: (Boolean) -> Unit) {
+        startProcessing {
+            try {
+                val src = sourceBitmap ?: run { onResult(false); return@startProcessing }
+                val result = withContext(Dispatchers.Default) {
+                    val m = subjectExtractor.extractAuto(src)
+                    if (m != null) m to m.applyToBitmap(src) else null
                 }
-                if (m != null) {
-                    mask = m
-                    maskedBitmap = m.applyToBitmap(src)
+                if (result != null) {
+                    mask = result.first
+                    val oldMasked = maskedBitmap
+                    maskedBitmap = result.second
+                    if (oldMasked !== null && oldMasked !== sourceBitmap && oldMasked !== result.second) {
+                        oldMasked.recycle()
+                    }
                     onResult(true)
                 } else {
                     error = "自动提取不可用, 请使用手动模式"
                     onResult(false)
                 }
             } catch (e: Throwable) {
-                // Throwable 而非 Exception: 捕获 UnsatisfiedLinkError 等 Error 避免闪退
                 error = e.message ?: "自动提取失败"
                 onResult(false)
-            } finally {
-                isProcessing = false
             }
         }
     }
 
     fun extractManual(rect: Rect, onResult: (Boolean) -> Unit) {
-        viewModelScope.launch {
-            isProcessing = true
-            error = null
+        startProcessing {
             try {
-                val src = sourceBitmap ?: run { onResult(false); return@launch }
-                val m = withContext(Dispatchers.Default) {
-                    subjectExtractor.extractManual(src, rect)
+                val src = sourceBitmap ?: run { onResult(false); return@startProcessing }
+                val result = withContext(Dispatchers.Default) {
+                    val m = subjectExtractor.extractManual(src, rect)
+                    m to m.applyToBitmap(src)
                 }
-                mask = m
-                maskedBitmap = m.applyToBitmap(src)
+                mask = result.first
+                val oldMasked = maskedBitmap
+                maskedBitmap = result.second
+                if (oldMasked !== null && oldMasked !== sourceBitmap && oldMasked !== result.second) {
+                    oldMasked.recycle()
+                }
                 onResult(true)
             } catch (e: Throwable) {
-                // Throwable 而非 Exception: 捕获 UnsatisfiedLinkError 等 Error 避免闪退
                 error = e.message ?: "手动提取失败"
                 onResult(false)
-            } finally {
-                isProcessing = false
             }
         }
     }
 
     fun generateGrid(onDone: () -> Unit = {}) {
-        viewModelScope.launch {
-            isProcessing = true
-            error = null
+        startProcessing {
             try {
-                val src = maskedBitmap ?: run { onDone(); return@launch }
+                val src = maskedBitmap ?: run { onDone(); return@startProcessing }
                 val palette = paletteRegistry.load(paletteKey)
                 val quantizer = Quantizer(palette)
                 val (tw, th) = computeTargetGrid(src, gridSize)
@@ -164,8 +194,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 error = e.message ?: "生成图纸失败"
                 onDone()
-            } finally {
-                isProcessing = false
             }
         }
     }
@@ -199,7 +227,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        processJob?.cancel()
         subjectExtractor.close()
+        sourceBitmap?.recycle()
+        if (maskedBitmap !== sourceBitmap) maskedBitmap?.recycle()
         super.onCleared()
     }
 }
