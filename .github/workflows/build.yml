@@ -2,6 +2,7 @@ name: Build and Release APK
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 jobs:
   build:
@@ -21,29 +22,26 @@ jobs:
           gradle-version: '8.7'
       - name: Download OpenCV Android SDK
         run: |
-          wget -q https://github.com/opencv/opencv/releases/download/4.10.0/opencv-4.10.0-android-sdk.zip
+          wget --tries=5 --timeout=60 --retry-connrefused --waitretry=5 -q \
+            https://github.com/opencv/opencv/releases/download/4.10.0/opencv-4.10.0-android-sdk.zip
           unzip -q opencv-4.10.0-android-sdk.zip
           mkdir -p opencv/src/main/java
           cp -r OpenCV-android-sdk/sdk/java/src/* opencv/src/main/java/
-          # Remove ALL camera view classes (unused by app; depend on BuildConfig + res + Camera APIs)
           rm -f opencv/src/main/java/org/opencv/android/*Camera*.java
-          # 仅打包 arm64-v8a (现代安卓机型, targetSdk 33 / Android 13)
           mkdir -p opencv/src/main/jniLibs
           cp -r OpenCV-android-sdk/sdk/native/libs/arm64-v8a opencv/src/main/jniLibs/
           rm -rf OpenCV-android-sdk opencv-4.10.0-android-sdk.zip
-          echo "=== opencv jniLibs ==="
           find opencv/src/main/jniLibs -name "*.so" -ls
       - name: Download U2Net TFLite model
         run: |
           mkdir -p app/src/main/assets/models
-          wget -q -O app/src/main/assets/models/u2net.tflite \
-            https://storage.googleapis.com/ailia-models-tflite/u2net/u2netp_float32.tflite || \
-          wget -q -O app/src/main/assets/models/u2net.tflite \
-            https://storage.googleapis.com/ailia-models-tflite/u2net/u2netp_full_integer_quant.tflite
+          wget --tries=5 --timeout=60 --retry-connrefused --waitretry=5 -q \
+            -O app/src/main/assets/models/u2net.tflite \
+            https://storage.googleapis.com/ailia-models-tflite/u2net/u2netp_float32.tflite
           ls -lh app/src/main/assets/models/
       - name: Fetch palettes and generate icon
         run: |
-          pip install pillow
+          pip install --no-cache-dir pillow
           python3 scripts/fetch_palettes.py
           python3 scripts/generate_icon.py
           ls -lh app/src/main/assets/palettes/
@@ -60,14 +58,12 @@ jobs:
       - name: Build APK
         run: |
           set -o pipefail
-          gradle assembleRelease --no-daemon --stacktrace --info 2>&1 | tee build.log
+          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
       - name: Zipalign APK (page-align .so for in-place mmap)
         run: |
           ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}
           ZIPALIGN=$(find $ANDROID_HOME -name zipalign 2>/dev/null | head -1)
-          echo "zipalign: $ZIPALIGN"
           APKSIGNER=$(find $ANDROID_HOME -name apksigner 2>/dev/null | head -1)
-          echo "apksigner: $APKSIGNER"
           SRC=app/build/outputs/apk/release/app-release.apk
           ALIGNED=/tmp/app-release-aligned.apk
           $ZIPALIGN -f -p 4 "$SRC" "$ALIGNED"
@@ -79,12 +75,9 @@ jobs:
           ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}
           ZIPALIGN=$(find $ANDROID_HOME -name zipalign 2>/dev/null | head -1)
           APK=app/build/outputs/apk/release/app-release.apk
-          echo "=== zipalign check ==="
           $ZIPALIGN -c -p 4 "$APK" 2>&1 && echo "OK: page-aligned" || echo "WARN: not page-aligned"
-          echo "=== .so files in APK ==="
           unzip -l "$APK" | grep -E "\.so" || { echo "ERROR: NO .so FILES!"; exit 1; }
-          echo "=== extractNativeLibs + compression ==="
-          pip install --quiet androguard
+          pip install --no-cache-dir androguard
           python3 -c "
           import logging; logging.disable(logging.CRITICAL)
           import zipfile
@@ -100,6 +93,11 @@ jobs:
                   method = 'Stored' if zi.compress_type == 0 else 'Deflated'
                   print(f'{f}: {method}, compressed={zi.compress_size}, uncompressed={zi.file_size}')
           "
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pindou-apk
+          path: app/build/outputs/apk/release/app-release.apk
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -112,22 +110,33 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/release/app-release.apk output/pindou-v1.0.3.apk
+          cp app/build/outputs/apk/release/app-release.apk output/pindou-v1.0.4.apk
           ls -lh output/
-      - name: Create Release v1.0.3
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.3
-          name: v1.0.3
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           body: |
-            # 拼豆 v1.0.3
-            修复启动闪退。
-            ## 修复
-            - TFLite 初始化 (U2Net) 改为后台异步执行 + catch Throwable
-            - 根因: 之前 `MainViewModel.init {}` 在主线程同步初始化 TFLite Interpreter, 加载 native 库失败时抛异常导致 ViewModel 创建失败 → App 启动即崩
-            - 现在: TFLite 初始化失败只记录错误, App 正常启动, 自动抠图降级为不可用 (手动 GrabCut 仍可用)
+            # 拼豆 ${{ github.ref_name }}
+            全量代码审查后的稳定性修复版本。
+            ## 修复内容
+            - PaletteRegistry 线程安全 (ConcurrentHashMap)
+            - Quantizer 空调色板校验 + 浮点 RGB 量化
+            - Pixelator 整数除法精度修复 + 排他采样区间 + Alpha 跳过
+            - Ditherer 浮点量化保留误差扩散精度
+            - Exporter OOM 防护 + CSV 转义 + 索引越界防护
+            - AutoSegmenter @Volatile 可见性 + Bitmap 回收 + fd 泄漏修复
+            - ManualSegmenter Mat try/finally 释放 + 移除静态块崩溃
+            - SubjectExtractor private 封装 + 日志记录
+            - MainViewModel isAutoAvailable 状态响应 + applyToBitmap 后台执行 + Bitmap 回收 + 协程串行化
+            - HomeScreen inSampleSize 解码避免大图 OOM
+            - EditorScreen/ExportScreen 异步渲染 + Bitmap 回收
+            - ExportScreen IO 线程分享 + fd 关闭 + 分享失败 Toast
+            - workflow 下载重试 + 仅 tag 发版 + artifact 上传
             ## 下载
-            - `pindou-v1.0.3.apk` - arm64-v8a (适配 Android 8.0+ / targetSdk 33 Android 13)
+            - `pindou-v1.0.4.apk` - arm64-v8a (适配 Android 8.0+ / targetSdk 33 Android 13)
           files: |
             output/*.apk
           prerelease: false

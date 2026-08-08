@@ -13,8 +13,8 @@ android {
         applicationId = "com.pindou.app"
         minSdk = 26
         targetSdk = 33
-        versionCode = 2
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.4"
         vectorDrawables.useSupportLibrary = true
         ndk {
             abiFilters += "arm64-v8a"
@@ -62,8 +62,6 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
-        // useLegacyPackaging=false: AGP 8.5 推荐, .so 压缩存储 + 页对齐 (zipalign -p 4)
-        // 配合 manifest extractNativeLibs=false, .so 直接从 APK mmap, 无需解压
         jniLibs {
             useLegacyPackaging = false
         }
