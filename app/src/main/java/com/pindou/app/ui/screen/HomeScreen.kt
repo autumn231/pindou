@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -70,10 +69,10 @@ fun HomeScreen(
                 Button(onClick = { pickImage.launch("image/*") }) {
                     Icon(Icons.Default.PhotoLibrary, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("相册")
+                    Text("从相册选择")
                 }
                 OutlinedButton(onClick = { pickImage.launch("image/*") }) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null)
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("选择图片")
                 }
@@ -109,8 +108,23 @@ fun HomeScreen(
 
 private fun decodeUri(context: android.content.Context, uri: Uri): Bitmap? {
     return try {
-        val input = context.contentResolver.openInputStream(uri) ?: return null
-        BitmapFactory.decodeStream(input).also { input.close() }
+        // 先用 inJustDecodeBounds 测量尺寸, 计算 inSampleSize 避免大图 OOM
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, bounds)
+        }
+        // 目标最大边 1080, 与 scaledToMax(1080) 对齐
+        val maxDim = 1080
+        val longer = maxOf(bounds.outWidth, bounds.outHeight)
+        var sampleSize = 1
+        while (longer / sampleSize > maxDim) sampleSize *= 2
+
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            BitmapFactory.decodeStream(
+                input, null,
+                BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            )
+        }
     } catch (e: Exception) {
         null
     }

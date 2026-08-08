@@ -1,7 +1,6 @@
 package com.pindou.app.ui.screen
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +26,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +39,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.pindou.app.ui.MainViewModel
 import com.pindou.app.util.Exporter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,6 +56,27 @@ fun EditorScreen(
     val useDither by vm::useDither
     val gridSize by vm::gridSize
     val maskedBitmap by vm::maskedBitmap
+
+    // 预览图异步生成, 避免主线程渲染大 Bitmap
+    var previewBmp by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    val exporter = remember { Exporter(vm.paletteRegistry) }
+    val currentGrid = grid
+    LaunchedEffect(currentGrid) {
+        if (currentGrid != null) {
+            previewBmp = withContext(Dispatchers.Default) {
+                exporter.exportPatternPng(currentGrid, cellSize = 8)
+            }
+        } else {
+            previewBmp = null
+        }
+    }
+    DisposableEffect(previewBmp) {
+        onDispose { previewBmp?.recycle() }
+    }
+
+    // Slider 拖动时用本地值缓存, 避免持续清空 grid
+    var sliderValue by remember { mutableStateOf(gridSize.toFloat()) }
+    LaunchedEffect(gridSize) { sliderValue = gridSize.toFloat() }
 
     Scaffold(
         topBar = {
@@ -79,11 +103,7 @@ fun EditorScreen(
                     .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
-                grid?.let { g ->
-                    val exporter = remember { Exporter(vm.paletteRegistry) }
-                    val bmp = remember(g) {
-                        exporter.exportPatternPng(g, cellSize = 8)
-                    }
+                previewBmp?.let { bmp ->
                     Image(
                         bitmap = bmp.asImageBitmap(),
                         contentDescription = null,
@@ -126,10 +146,11 @@ fun EditorScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            Text("网格尺寸: $gridSize")
+            Text("网格尺寸: ${sliderValue.toInt()}")
             Slider(
-                value = gridSize.toFloat(),
-                onValueChange = { vm.setGridSize(it.toInt()) },
+                value = sliderValue,
+                onValueChange = { sliderValue = it },
+                onValueChangeFinished = { vm.setGridSize(sliderValue.toInt()) },
                 valueRange = 10f..200f,
                 steps = 18
             )

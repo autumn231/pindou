@@ -22,8 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,7 +32,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,6 +50,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.pindou.app.ui.MainViewModel
 import com.pindou.app.util.Exporter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 
@@ -55,6 +64,7 @@ fun ExportScreen(
 ) {
     val grid = vm.grid
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -76,10 +86,25 @@ fun ExportScreen(
             return@Scaffold
         }
 
-        val palette = remember(g.paletteKey) { vm.paletteRegistry.load(g.paletteKey) }
+        val palette = remember(g.paletteKey) {
+            try { vm.paletteRegistry.load(g.paletteKey) } catch (e: Exception) { null }
+        }
         val exporter = remember { Exporter(vm.paletteRegistry) }
-        val patternBmp = remember(g) { exporter.exportPatternPng(g, cellSize = 24) }
+
+        // 异步生成预览大图, 避免主线程 OOM
+        var patternBmp by remember { mutableStateOf<Bitmap?>(null) }
+        LaunchedEffect(g) {
+            patternBmp = withContext(Dispatchers.Default) {
+                exporter.exportPatternPng(g, cellSize = 24)
+            }
+        }
+        DisposableEffect(patternBmp) {
+            onDispose { patternBmp?.recycle() }
+        }
+
         val usage = remember(g) { g.usageCounts() }
+        val colors = palette?.colors
+        val lastIdx = colors?.lastIndex ?: -1
 
         Column(
             modifier = Modifier
@@ -89,12 +114,14 @@ fun ExportScreen(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Image(
-                bitmap = patternBmp.asImageBitmap(),
-                contentDescription = null,
-                modifier = Modifier.fillMaxWidth(),
-                contentScale = ContentScale.Fit
-            )
+            patternBmp?.let { bmp ->
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentScale = ContentScale.Fit
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
 
@@ -104,18 +131,25 @@ fun ExportScreen(
             ) {
                 Button(
                     onClick = {
-                        val file = File(context.cacheDir, "pindou_pattern_${System.currentTimeMillis()}.png")
-                        patternBmp.compress(Bitmap.CompressFormat.PNG, 100, FileOutputStream(file))
-                        shareFile(context, file, "image/png")
+                        val bmp = patternBmp ?: return@Button
+                        scope.launch(Dispatchers.IO) {
+                            val file = File(context.cacheDir, "pindou_pattern_${System.currentTimeMillis()}.png")
+                            FileOutputStream(file).use { fos ->
+                                bmp.compress(Bitmap.CompressFormat.PNG, 100, fos)
+                            }
+                            shareFile(context, file, "image/png")
+                        }
                     },
                     modifier = Modifier.weight(1f)
                 ) { Text("分享图纸") }
                 OutlinedButton(
                     onClick = {
-                        val csv = exporter.exportUsageCsv(g)
-                        val file = File(context.cacheDir, "pindou_usage_${System.currentTimeMillis()}.csv")
-                        file.writeText(csv)
-                        shareFile(context, file, "text/csv")
+                        scope.launch(Dispatchers.IO) {
+                            val csv = exporter.exportUsageCsv(g)
+                            val file = File(context.cacheDir, "pindou_usage_${System.currentTimeMillis()}.csv")
+                            file.writeText(csv)
+                            shareFile(context, file, "text/csv")
+                        }
                     },
                     modifier = Modifier.weight(1f)
                 ) { Text("分享清单") }
@@ -129,7 +163,8 @@ fun ExportScreen(
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
                     usage.forEach { (idx, count) ->
-                        val c = palette.colors[idx]
+                        if (idx !in 0..lastIdx) return@forEach
+                        val c = colors[idx]
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -145,7 +180,7 @@ fun ExportScreen(
                             Text("$count")
                         }
                     }
-                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     Row(Modifier.fillMaxWidth()) {
                         Spacer(Modifier.weight(1f))
                         Text("共 ${usage.sumOf { it.second }} 颗", fontWeight = FontWeight.SemiBold)
@@ -157,11 +192,16 @@ fun ExportScreen(
 }
 
 private fun shareFile(context: Context, file: File, mime: String) {
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = mime
-        putExtra(Intent.EXTRA_STREAM, uri)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    try {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "分享"))
+    } catch (e: Exception) {
+        // 无可用应用或 FileProvider 配置错误时不崩溃
+        android.widget.Toast.makeText(context, "分享失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
     }
-    context.startActivity(Intent.createChooser(intent, "分享"))
 }
