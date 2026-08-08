@@ -19,19 +19,11 @@ class Quantizer(private val palette: Palette) {
 
     /** 找到最接近的豆色索引 (返回调色板里的下标) */
     fun quantize(r: Int, g: Int, b: Int): Int {
-        val rc = r.coerceIn(0, 255)
-        val gc = g.coerceIn(0, 255)
-        val bc = b.coerceIn(0, 255)
-        val targetLab = ColorSpaces.rgbToLab(rc, gc, bc)
-        return findClosest(targetLab)
-    }
-
-    /** 浮点 RGB 入参, 保留分数精度 (抖动用) */
-    fun quantize(r: Float, g: Float, b: Float): Int {
+        // 输入校验: clamp 到合法 RGB 范围
         val targetLab = ColorSpaces.rgbToLab(
-            r.coerceIn(0f, 255f).toDouble(),
-            g.coerceIn(0f, 255f).toDouble(),
-            b.coerceIn(0f, 255f).toDouble()
+            r.coerceIn(0, 255),
+            g.coerceIn(0, 255),
+            b.coerceIn(0, 255)
         )
         return findClosest(targetLab)
     }
@@ -51,6 +43,7 @@ class Quantizer(private val palette: Palette) {
         return bestIdx
     }
 
+    /** 安全获取颜色: 索引越界时返回第一个颜色, 避免 IndexOutOfBoundsException */
     fun colorAt(index: Int): BeadColor =
         palette.colors.getOrElse(index) { palette.colors[0] }
 }

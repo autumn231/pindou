@@ -2,7 +2,6 @@ package com.pindou.app.data.segmentation
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.util.Log
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
@@ -18,6 +17,7 @@ import java.nio.channels.FileChannel
  */
 class AutoSegmenter(private val context: Context) {
 
+    // @Volatile: init() 在后台线程执行, segment() 可能在另一个线程读取, 保证可见性
     @Volatile
     private var interpreter: Interpreter? = null
     @Volatile
@@ -84,7 +84,8 @@ class AutoSegmenter(private val context: Context) {
             }
             return resizeMask(maskSmall, inputSize, inputSize, source.width, source.height)
         } finally {
-            scaled.recycle()
+            // 回收临时缩放的 Bitmap, 避免内存泄漏
+            if (scaled !== source) scaled.recycle()
         }
     }
 
@@ -103,15 +104,17 @@ class AutoSegmenter(private val context: Context) {
     }
 
     private fun loadModelFile(assetPath: String): MappedByteBuffer {
-        // openFd 返回的 AssetFileDescriptor 必须关闭, 否则 fd 泄漏
-        return context.assets.openFd(assetPath).use { fis ->
-            FileInputStream(fis.fileDescriptor).use { stream ->
+        val afd = context.assets.openFd(assetPath)
+        try {
+            return FileInputStream(afd.fileDescriptor).use { stream ->
                 stream.channel.map(
                     FileChannel.MapMode.READ_ONLY,
-                    fis.startOffset,
-                    fis.declaredLength
+                    afd.startOffset,
+                    afd.declaredLength
                 )
             }
+        } finally {
+            afd.close()
         }
     }
 

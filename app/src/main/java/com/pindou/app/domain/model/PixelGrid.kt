@@ -25,6 +25,12 @@ data class PixelGrid(
         return counts.entries.map { it.key to it.value }.sortedByDescending { it.second }
     }
 
+    /** 使用的不同颜色种类数 */
+    val colorCount: Int get() = colorIndices.toSet().count { it >= 0 }
+
+    /** 总豆数 (不含透明格) */
+    val totalBeads: Int get() = colorIndices.count { it >= 0 }
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false

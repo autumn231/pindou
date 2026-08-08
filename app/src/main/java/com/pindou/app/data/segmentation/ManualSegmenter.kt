@@ -2,8 +2,7 @@ package com.pindou.app.data.segmentation
 
 import android.graphics.Bitmap
 import android.graphics.Rect
-import android.util.Log
-import org.opencv.android.OpenCVLoader
+import com.pindou.app.util.OpenCvInitializer
 import org.opencv.android.Utils
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -24,7 +23,10 @@ class ManualSegmenter {
      * @return mask: 1 = 前景, 0 = 背景, 长度 = source.width * source.height
      */
     fun grabCut(source: Bitmap, rect: Rect, iterations: Int = 5): IntArray {
-        // Utils.bitmapToMat 要求可读写的 ARGB_8888 bitmap (hardware bitmap 不支持)
+        if (!OpenCvInitializer.ensureLoaded()) {
+            throw IllegalStateException("OpenCV native 库加载失败, 无法执行 GrabCut")
+        }
+
         val src = if (source.config == Bitmap.Config.ARGB_8888 && !source.isRecycled) {
             source
         } else {
@@ -50,7 +52,6 @@ class ManualSegmenter {
 
             Imgproc.grabCut(srcMat, mask, cvRect, bgdModel, fgdModel, iterations, Imgproc.GC_INIT_WITH_RECT)
 
-            // mask 取值: 0=bg, 1=fg, 2=probable bg, 3=probable fg
             val maskBytes = ByteArray(src.width * src.height)
             mask.get(0, 0, maskBytes)
 
@@ -61,7 +62,6 @@ class ManualSegmenter {
             }
             return result
         } finally {
-            // 确保异常时也释放 native Mat 内存
             srcMat.release()
             mask.release()
             bgdModel.release()

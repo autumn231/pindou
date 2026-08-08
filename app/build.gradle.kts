@@ -13,8 +13,8 @@ android {
         applicationId = "com.pindou.app"
         minSdk = 26
         targetSdk = 33
-        versionCode = 4
-        versionName = "1.0.4"
+        versionCode = 6
+        versionName = "1.2.0"
         vectorDrawables.useSupportLibrary = true
         ndk {
             abiFilters += "arm64-v8a"
@@ -62,8 +62,10 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        // useLegacyPackaging=true: .so 解压到文件系统后加载, 兼容性最佳
+        // 配合 manifest extractNativeLibs=true, 避免 OpenCV n_Mat 找不到符号
         jniLibs {
-            useLegacyPackaging = false
+            useLegacyPackaging = true
         }
     }
     lint {
