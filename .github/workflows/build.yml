@@ -27,21 +27,25 @@ jobs:
           unzip -q opencv-4.10.0-android-sdk.zip
           mkdir -p opencv/src/main/java
           cp -r OpenCV-android-sdk/sdk/java/src/* opencv/src/main/java/
+          # Remove ALL camera view classes (unused by app; depend on BuildConfig + res + Camera APIs)
           rm -f opencv/src/main/java/org/opencv/android/*Camera*.java
+          # 仅打包 arm64-v8a (现代安卓机型, targetSdk 33 / Android 13)
           mkdir -p opencv/src/main/jniLibs
           cp -r OpenCV-android-sdk/sdk/native/libs/arm64-v8a opencv/src/main/jniLibs/
           rm -rf OpenCV-android-sdk opencv-4.10.0-android-sdk.zip
+          echo "=== opencv jniLibs ==="
           find opencv/src/main/jniLibs -name "*.so" -ls
       - name: Download U2Net TFLite model
         run: |
           mkdir -p app/src/main/assets/models
-          wget --tries=5 --timeout=60 --retry-connrefused --waitretry=5 -q \
-            -O app/src/main/assets/models/u2net.tflite \
-            https://storage.googleapis.com/ailia-models-tflite/u2net/u2netp_float32.tflite
+          wget --tries=5 --timeout=60 --retry-connrefused --waitretry=5 -q -O app/src/main/assets/models/u2net.tflite \
+            https://storage.googleapis.com/ailia-models-tflite/u2net/u2netp_float32.tflite || \
+          wget --tries=5 --timeout=60 --retry-connrefused --waitretry=5 -q -O app/src/main/assets/models/u2net.tflite \
+            https://storage.googleapis.com/ailia-models-tflite/u2net/u2netp_full_integer_quant.tflite
           ls -lh app/src/main/assets/models/
       - name: Fetch palettes and generate icon
         run: |
-          pip install --no-cache-dir pillow
+          pip install pillow
           python3 scripts/fetch_palettes.py
           python3 scripts/generate_icon.py
           ls -lh app/src/main/assets/palettes/
@@ -58,46 +62,25 @@ jobs:
       - name: Build APK
         run: |
           set -o pipefail
-          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
-      - name: Zipalign APK (page-align .so for in-place mmap)
+          gradle assembleRelease --no-daemon --stacktrace --info 2>&1 | tee build.log
+      - name: Zipalign APK
         run: |
           ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}
           ZIPALIGN=$(find $ANDROID_HOME -name zipalign 2>/dev/null | head -1)
+          echo "zipalign: $ZIPALIGN"
           APKSIGNER=$(find $ANDROID_HOME -name apksigner 2>/dev/null | head -1)
+          echo "apksigner: $APKSIGNER"
           SRC=app/build/outputs/apk/release/app-release.apk
           ALIGNED=/tmp/app-release-aligned.apk
           $ZIPALIGN -f -p 4 "$SRC" "$ALIGNED"
           $APKSIGNER sign --ks $HOME/pindou.keystore --ks-pass pass:pindou123 \
             --ks-key-alias pindou --key-pass pass:pindou123 --out "$SRC" "$ALIGNED"
           $APKSIGNER verify --verbose "$SRC" 2>&1 | head -5
-      - name: Verify APK native libs + alignment
+      - name: Verify APK native libs
         run: |
-          ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}
-          ZIPALIGN=$(find $ANDROID_HOME -name zipalign 2>/dev/null | head -1)
           APK=app/build/outputs/apk/release/app-release.apk
-          $ZIPALIGN -c -p 4 "$APK" 2>&1 && echo "OK: page-aligned" || echo "WARN: not page-aligned"
+          echo "=== .so files in APK ==="
           unzip -l "$APK" | grep -E "\.so" || { echo "ERROR: NO .so FILES!"; exit 1; }
-          pip install --no-cache-dir androguard
-          python3 -c "
-          import logging; logging.disable(logging.CRITICAL)
-          import zipfile
-          from androguard.core.apk import APK
-          a = APK('$APK')
-          app = a.xml['AndroidManifest.xml'].find('.//application')
-          ns = '{http://schemas.android.com/apk/res/android}'
-          print('extractNativeLibs:', app.get(ns+'extractNativeLibs'))
-          z = zipfile.ZipFile('$APK')
-          for f in a.get_files():
-              if f.endswith('.so'):
-                  zi = z.getinfo(f)
-                  method = 'Stored' if zi.compress_type == 0 else 'Deflated'
-                  print(f'{f}: {method}, compressed={zi.compress_size}, uncompressed={zi.file_size}')
-          "
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pindou-apk
-          path: app/build/outputs/apk/release/app-release.apk
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -107,10 +90,16 @@ jobs:
             build.log
             app/build/reports/
             build/reports/
-      - name: Rename APK
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pindou-apk
+          path: app/build/outputs/apk/release/app-release.apk
+      - name: Rename APK for release
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/release/app-release.apk output/pindou-v1.0.4.apk
+          cp app/build/outputs/apk/release/app-release.apk output/pindou-${{ github.ref_name }}.apk
           ls -lh output/
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -120,23 +109,33 @@ jobs:
           name: ${{ github.ref_name }}
           body: |
             # 拼豆 ${{ github.ref_name }}
-            全量代码审查后的稳定性修复版本。
-            ## 修复内容
-            - PaletteRegistry 线程安全 (ConcurrentHashMap)
-            - Quantizer 空调色板校验 + 浮点 RGB 量化
-            - Pixelator 整数除法精度修复 + 排他采样区间 + Alpha 跳过
-            - Ditherer 浮点量化保留误差扩散精度
-            - Exporter OOM 防护 + CSV 转义 + 索引越界防护
-            - AutoSegmenter @Volatile 可见性 + Bitmap 回收 + fd 泄漏修复
-            - ManualSegmenter Mat try/finally 释放 + 移除静态块崩溃
-            - SubjectExtractor private 封装 + 日志记录
-            - MainViewModel isAutoAvailable 状态响应 + applyToBitmap 后台执行 + Bitmap 回收 + 协程串行化
-            - HomeScreen inSampleSize 解码避免大图 OOM
-            - EditorScreen/ExportScreen 异步渲染 + Bitmap 回收
-            - ExportScreen IO 线程分享 + fd 关闭 + 分享失败 Toast
-            - workflow 下载重试 + 仅 tag 发版 + artifact 上传
+            ## 新功能
+            - **图像增强**: 解决拍照光线问题, 提升拼豆颜色匹配准确度
+              - 一键自动增强: 智能组合白平衡 + CLAHE + Gamma
+              - 白平衡 (灰世界算法): 消除色偏, 还原真实色彩
+              - CLAHE 对比度增强: 改善局部光线不均, 可调强度
+              - Gamma 亮度校正: 提亮暗照/压暗过曝, 可调参数
+            - 项目持久化: 保存/加载/删除项目, 支持缩略图列表
+            - 图片旋转: HomeScreen 和 ExtractScreen 均可旋转原图
+            - 保存到相册: ExportScreen 直接保存图纸到相册 (MediaStore)
+            - 图纸统计: 显示尺寸、颜色种类数、总颗数
+            - 未保存修改提示: 返回时弹出确认对话框
+            - Snackbar 消息提示: 保存/加载/删除操作反馈
+            - 项目列表页: 浏览已保存项目, 点击加载
+            ## 修复
+            - OpenCV native 库加载: extractNativeLibs=true + useLegacyPackaging=true
+            - TFLite 初始化异步执行, 失败降级到手动 GrabCut
+            - Bitmap 回收: 全链路回收, 无内存泄漏
+            - 协程串行化: startProcessing 取消上一次未完成操作
+            - 滑块防抖: 拖动时延迟清除 grid, 避免频繁重置
+            - 颜色量化: 浮点除法 + 四舍五入, 避免整数截断偏暗
+            - 采样区间左闭右开, 跳过透明像素
+            - PaletteRegistry: ConcurrentHashMap + key 格式校验
+            - ManualSegmenter/OpenCVInitializer: 共享懒加载, 不崩溃
+            - Exporter: CSV 转义 + 输出尺寸上限 + 越界保护
+            - 资源清理: 移除未使用的颜色和权限
             ## 下载
-            - `pindou-v1.0.4.apk` - arm64-v8a (适配 Android 8.0+ / targetSdk 33 Android 13)
+            - `pindou-${{ github.ref_name }}.apk` - arm64-v8a (适配 Android 8.0+ / targetSdk 33 Android 13)
           files: |
             output/*.apk
           prerelease: false
