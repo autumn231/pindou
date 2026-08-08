@@ -63,7 +63,8 @@ class ImageEnhancer {
             rgb.release()
             lab.release()
             channels.forEach { it.release() }
-            clahe.release()
+            // CLAHE 继承自 Algorithm, 使用 clear() 释放原生资源
+            clahe.clear()
         }
     }
 
@@ -136,10 +137,12 @@ class ImageEnhancer {
             // 构建查找表 (0~255 -> 校正后 0~255)
             val lut = Mat(1, 256, CvType.CV_8U)
             val invGamma = 1.0 / gamma
+            val lutData = ByteArray(256)
             for (i in 0 until 256) {
                 val corrected = Math.pow(i / 255.0, invGamma) * 255.0
-                lut.put(0, i, corrected.toByte())
+                lutData[i] = corrected.toInt().coerceIn(0, 255).toByte()
             }
+            lut.put(0, 0, lutData)
             Core.LUT(rgb, lut, rgb)
 
             Imgproc.cvtColor(rgb, rgba, Imgproc.COLOR_RGB2RGBA)
