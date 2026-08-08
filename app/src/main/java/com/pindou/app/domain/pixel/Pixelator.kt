@@ -7,7 +7,7 @@ import kotlin.math.roundToInt
 
 /**
  * 像素化: 把 Bitmap 下采样到 width x height 网格, 每格一个拼豆
- * 区域平均采样 + CIEDE2000 量化
+ * 双线性区域平均采样 + CIEDE2000 量化
  */
 class Pixelator(private val quantizer: Quantizer) {
 
@@ -23,11 +23,7 @@ class Pixelator(private val quantizer: Quantizer) {
         targetHeight: Int,
         mask: IntArray? = null
     ): PixelGrid {
-        require(targetWidth > 0 && targetHeight > 0)
-        require(mask == null || mask.size == targetWidth * targetHeight) {
-            "mask 长度 ${mask?.size} != ${targetWidth * targetHeight}"
-        }
-
+        require(targetWidth > 0 && targetHeight > 0) { "目标尺寸必须 > 0" }
         val indices = IntArray(targetWidth * targetHeight) { -1 }
 
         val srcW = source.width
@@ -45,10 +41,10 @@ class Pixelator(private val quantizer: Quantizer) {
                     indices[idx] = -1
                     continue
                 }
-                // 排他上界, 避免相邻格重叠采样
-                val srcX0 = (x * sx).toInt().coerceIn(0, srcW)
+                // 采样区间 [srcX0, srcX1): 左闭右开, 避免相邻格子重叠采样
+                val srcX0 = (x * sx).toInt().coerceIn(0, srcW - 1)
                 val srcX1 = ((x + 1) * sx).toInt().coerceIn(srcX0 + 1, srcW)
-                val srcY0 = (y * sy).toInt().coerceIn(0, srcH)
+                val srcY0 = (y * sy).toInt().coerceIn(0, srcH - 1)
                 val srcY1 = ((y + 1) * sy).toInt().coerceIn(srcY0 + 1, srcH)
 
                 var r = 0L
@@ -68,7 +64,7 @@ class Pixelator(private val quantizer: Quantizer) {
                     }
                 }
                 if (count == 0) continue
-                // 浮点除法避免整数截断精度损失
+                // 浮点除法 + 四舍五入, 避免整数除法截断导致颜色偏暗
                 indices[idx] = quantizer.quantize(
                     (r.toFloat() / count).roundToInt(),
                     (g.toFloat() / count).roundToInt(),

@@ -3,6 +3,7 @@ package com.pindou.app.domain.pixel
 import android.graphics.Bitmap
 import com.pindou.app.domain.color.Quantizer
 import com.pindou.app.domain.model.PixelGrid
+import kotlin.math.roundToInt
 
 /**
  * Floyd-Steinberg 抖动
@@ -16,11 +17,7 @@ class Ditherer(private val quantizer: Quantizer) {
         targetHeight: Int,
         mask: IntArray? = null
     ): PixelGrid {
-        require(targetWidth > 0 && targetHeight > 0)
-        require(mask == null || mask.size == targetWidth * targetHeight) {
-            "mask 长度 ${mask?.size} != ${targetWidth * targetHeight}"
-        }
-
+        require(targetWidth > 0 && targetHeight > 0) { "目标尺寸必须 > 0" }
         val srcW = source.width
         val srcH = source.height
         val pixels = IntArray(srcW * srcH)
@@ -41,9 +38,10 @@ class Ditherer(private val quantizer: Quantizer) {
                     transparent[idx] = true
                     continue
                 }
-                val srcX0 = (x * sx).toInt().coerceIn(0, srcW)
+                // 采样区间 [srcX0, srcX1): 左闭右开, 避免相邻格子重叠采样
+                val srcX0 = (x * sx).toInt().coerceIn(0, srcW - 1)
                 val srcX1 = ((x + 1) * sx).toInt().coerceIn(srcX0 + 1, srcW)
-                val srcY0 = (y * sy).toInt().coerceIn(0, srcH)
+                val srcY0 = (y * sy).toInt().coerceIn(0, srcH - 1)
                 val srcY1 = ((y + 1) * sy).toInt().coerceIn(srcY0 + 1, srcH)
 
                 var r = 0f
@@ -54,6 +52,7 @@ class Ditherer(private val quantizer: Quantizer) {
                     val rowOffset = syi * srcW
                     for (sxi in srcX0 until srcX1) {
                         val c = pixels[rowOffset + sxi]
+                        // 跳过完全透明的像素, 避免拉暗均值
                         if ((c ushr 24) and 0xFF == 0) continue
                         r += ((c shr 16) and 0xFF).toFloat()
                         g += ((c shr 8) and 0xFF).toFloat()
@@ -65,8 +64,6 @@ class Ditherer(private val quantizer: Quantizer) {
                     bufR[idx] = r / count
                     bufG[idx] = g / count
                     bufB[idx] = b / count
-                } else {
-                    transparent[idx] = true
                 }
             }
         }
@@ -77,8 +74,11 @@ class Ditherer(private val quantizer: Quantizer) {
                 val idx = y * targetWidth + x
                 if (transparent[idx]) continue
 
-                // 直接用浮点 RGB 量化, 保留误差扩散所需的分数精度
-                val paletteIdx = quantizer.quantize(bufR[idx], bufG[idx], bufB[idx])
+                val r = bufR[idx].roundToInt().coerceIn(0, 255)
+                val g = bufG[idx].roundToInt().coerceIn(0, 255)
+                val b = bufB[idx].roundToInt().coerceIn(0, 255)
+
+                val paletteIdx = quantizer.quantize(r, g, b)
                 indices[idx] = paletteIdx
 
                 val beadColor = quantizer.colorAt(paletteIdx)
